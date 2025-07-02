@@ -1,0 +1,250 @@
+package main
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"os/signal"
+	"strings"
+	"sync/atomic"
+	"syscall"
+	"time"
+
+	"order-book-aggregator/client"
+	"order-book-aggregator/orderbook"
+)
+
+func main() {
+	log.Println("Starting Order Book Aggregator...")
+
+	// Create order book aggregator
+	aggregator := orderbook.NewOrderBookAggregator()
+
+	// Add callback to handle order book updates
+	aggregator.AddCallback(func(symbol string, orderBook *orderbook.OrderBook) {
+		// This callback is called whenever an order book is updated
+		log.Printf("Order book updated for %s from exchanges: %v", symbol, orderBook.Sources)
+
+		// You can add custom logic here, such as:
+		// - Sending alerts when spread is too wide
+		// - Logging order book snapshots
+		// - Triggering trading strategies
+	})
+
+	// Create MEXC WebSocket client with callback
+	mexcCallback := func(data *client.OrderBookData) {
+		// Convert MEXC data to the aggregator format
+		exchangeBook := &orderbook.ExchangeOrderBook{
+			Symbol:     data.Symbol,
+			Exchange:   data.Exchange,
+			Bids:       data.Bids,
+			Asks:       data.Asks,
+			LastUpdate: data.LastUpdate,
+			Version:    data.Version,
+		}
+
+		// Update the aggregator
+		aggregator.UpdateOrderBook("MEXC", exchangeBook)
+	}
+
+	mexcClient := client.NewMEXCWebSocketClient(mexcCallback)
+
+	// Connect to MEXC WebSocket
+	log.Println("Connecting to MEXC WebSocket...")
+	if err := mexcClient.Connect(); err != nil {
+		log.Fatalf("Failed to connect to MEXC: %v", err)
+	}
+	defer mexcClient.Close()
+
+	// Start reconnection handler
+	mexcClient.StartReconnectHandler()
+
+	// Subscribe to order books for multiple symbols
+	symbols := []string{"BTCUSDT", "ETHUSDT", "ADAUSDT", "BNBUSDT", "SOLUSDT"}
+	log.Printf("Subscribing to symbols: %v", symbols)
+
+	if err := mexcClient.SubscribeMultipleOrderBooks(symbols, "100ms"); err != nil {
+		log.Fatalf("Failed to subscribe to order books: %v", err)
+	}
+
+	// Set up graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	// Create a ticker for periodic order book display
+	displayTicker := time.NewTicker(10 * time.Second)
+	defer displayTicker.Stop()
+
+	// Create a ticker for statistics
+	statsTicker := time.NewTicker(30 * time.Second)
+	defer statsTicker.Stop()
+
+	log.Println("Order Book Aggregator is running. Press Ctrl+C to exit.")
+	fmt.Println(strings.Repeat("=", 60))
+
+	for {
+		select {
+		case <-displayTicker.C:
+			displayOrderBooks(aggregator, symbols)
+
+		case <-statsTicker.C:
+			displayStatistics(aggregator, symbols)
+
+		case sig := <-sigChan:
+			log.Printf("Received signal %v, shutting down gracefully...", sig)
+			return
+		}
+	}
+}
+
+// displayOrderBooks shows the current state of all order books
+func displayOrderBooks(aggregator *orderbook.OrderBookAggregator, symbols []string) {
+	fmt.Println("\n" + strings.Repeat("=", 80))
+	fmt.Println("CURRENT ORDER BOOKS")
+	fmt.Println(strings.Repeat("=", 80))
+
+	for _, symbol := range symbols {
+		orderBook := aggregator.GetOrderBook(symbol)
+		if orderBook == nil {
+			fmt.Printf("%-10s: No data available\n", symbol)
+			continue
+		}
+
+		bestBid, bestAsk, spread, err := orderBook.GetBestPrice()
+		if err != nil {
+			fmt.Printf("%-10s: Error getting best prices: %v\n", symbol, err)
+			continue
+		}
+
+		midPrice := (bestBid + bestAsk) / 2
+		spreadPercent := (spread / midPrice) * 100
+
+		fmt.Printf("%-10s | Bid: $%8.2f | Ask: $%8.2f | Spread: $%6.2f (%.3f%%) | Sources: %v\n",
+			symbol, bestBid, bestAsk, spread, spreadPercent, orderBook.Sources)
+	}
+}
+
+// displayStatistics shows aggregated statistics
+func displayStatistics(aggregator *orderbook.OrderBookAggregator, symbols []string) {
+	fmt.Println("\n" + strings.Repeat("-", 80))
+	fmt.Println("STATISTICS")
+	fmt.Println(strings.Repeat("-", 80))
+
+	totalSymbols := 0
+	activeSymbols := 0
+	totalSources := make(map[string]bool)
+
+	for _, symbol := range symbols {
+		totalSymbols++
+		orderBook := aggregator.GetOrderBook(symbol)
+		if orderBook != nil {
+			activeSymbols++
+			for _, source := range orderBook.Sources {
+				totalSources[source] = true
+			}
+		}
+	}
+
+	fmt.Printf("Total Symbols: %d\n", totalSymbols)
+	fmt.Printf("Active Symbols: %d\n", activeSymbols)
+	fmt.Printf("Connected Exchanges: %d (%v)\n", len(totalSources), getKeys(totalSources))
+	fmt.Printf("Uptime: %s\n", time.Since(startTime).Round(time.Second))
+}
+
+// Helper function to repeat strings (since Go doesn't have a built-in repeat for strings)
+func repeat(s string, count int) string {
+	if count <= 0 {
+		return ""
+	}
+	return strings.Repeat(s, count)
+}
+
+// Helper function to get keys from a map
+func getKeys(m map[string]bool) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// Global variable to track start time
+var startTime = time.Now()
+
+// Advanced example showing how to monitor specific conditions
+func setupAdvancedMonitoring(aggregator *orderbook.OrderBookAggregator) {
+	// Example: Alert when spread is unusually wide
+	aggregator.AddCallback(func(symbol string, orderBook *orderbook.OrderBook) {
+		bestBid, bestAsk, spread, err := orderBook.GetBestPrice()
+		if err != nil {
+			return
+		}
+
+		midPrice := (bestBid + bestAsk) / 2
+		spreadPercent := (spread / midPrice) * 100
+
+		// Alert if spread is greater than 0.1%
+		if spreadPercent > 0.1 {
+			log.Printf("ALERT: Wide spread detected for %s: %.3f%% ($%.2f)",
+				symbol, spreadPercent, spread)
+		}
+	})
+
+	// Example: Monitor for arbitrage opportunities
+	aggregator.AddCallback(func(symbol string, orderBook *orderbook.OrderBook) {
+		// This is where you could implement arbitrage detection
+		// by comparing prices across different exchanges
+		// For now, we'll just log when we have multiple sources
+		if len(orderBook.Sources) > 1 {
+			log.Printf("Multiple sources available for %s: %v", symbol, orderBook.Sources)
+		}
+	})
+}
+
+// Example of how you might extend this to add more exchanges
+func addMoreExchanges(aggregator *orderbook.OrderBookAggregator) {
+	// Example structure for adding Binance or other exchanges:
+
+	/*
+		binanceCallback := func(data *clients.BinanceOrderBookData) {
+			exchangeBook := &orderbook.ExchangeOrderBook{
+				Symbol:     data.Symbol,
+				Exchange:   "Binance",
+				Bids:       data.Bids,
+				Asks:       data.Asks,
+				LastUpdate: data.LastUpdate,
+			}
+			aggregator.UpdateOrderBook("Binance", exchangeBook)
+		}
+
+		binanceClient := clients.NewBinanceWebSocketClient(binanceCallback)
+		// ... connect and subscribe
+	*/
+
+	// For now, this is just a placeholder showing the pattern
+	log.Println("Ready to add more exchanges...")
+}
+
+// Performance monitoring function
+func startPerformanceMonitoring(aggregator *orderbook.OrderBookAggregator) {
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+
+		var updateCount int64
+
+		for range ticker.C {
+			// You could add metrics here such as:
+			// - Updates per second
+			// - Memory usage
+			// - Connection health
+			// - Latency measurements
+
+			currentCount := atomic.LoadInt64(&updateCount)
+			updatesPerMinute := currentCount - updateCount
+			updateCount = currentCount
+
+			log.Printf("Performance: %d updates/min", updatesPerMinute)
+		}
+	}()
+}
