@@ -12,6 +12,7 @@ import (
 
 	"order-book-aggregator/client"
 	"order-book-aggregator/orderbook"
+	"order-book-aggregator/restapi"
 )
 
 func main() {
@@ -81,6 +82,9 @@ func main() {
 
 	log.Println("Order Book Aggregator is running. Press Ctrl+C to exit.")
 	fmt.Println(strings.Repeat("=", 60))
+
+	// Add this to your main() function
+	go restapi.SetupHTTPServer(aggregator)
 
 	for {
 		select {
