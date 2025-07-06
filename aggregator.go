@@ -32,6 +32,10 @@ func main() {
 		// - Triggering trading strategies
 	})
 
+	// Symbols to track (note: BNB might not be available on Kraken)
+	symbols := []string{"BTCUSDT", "ETHUSDT", "ADAUSDT", "SOLUSDT", "DOTUSDT"}
+	log.Printf("Will subscribe to symbols: %v", symbols)
+
 	// When you receive order book updates from MEXC, broadcast to WebSocket clients
 	mexcCallback := func(data *client.OrderBookData) {
 		// Convert MEXC data to the aggregator format
@@ -54,21 +58,61 @@ func main() {
 		}
 	}
 
-	mexcClient := client.NewMEXCWebSocketClient(mexcCallback)
+	// Set up Kraken WebSocket client
+	krakenCallback := func(data *client.OrderBookData) {
+		exchangeBook := &orderbook.ExchangeOrderBook{
+			Symbol:     data.Symbol,
+			Exchange:   data.Exchange,
+			Bids:       data.Bids,
+			Asks:       data.Asks,
+			LastUpdate: data.LastUpdate,
+			Version:    data.Version,
+		}
 
-	// Connect to MEXC WebSocket
+		aggregator.UpdateOrderBook("Kraken", exchangeBook)
+
+		// Broadcast to WebSocket clients
+		if updatedOrderBook := aggregator.GetOrderBook(data.Symbol); updatedOrderBook != nil {
+			restapi.BroadcastOrderBookUpdate(updatedOrderBook)
+		}
+	}
+
+	// Create clients
+	mexcClient := client.NewMEXCWebSocketClient(mexcCallback)
+	krakenClient := client.NewKrakenWebSocketClient(krakenCallback)
+
+	// Connect to Kraken with a small delay
+	time.Sleep(2 * time.Second)
+	log.Println("Connecting to Kraken WebSocket...")
+	if err := krakenClient.Connect(); err != nil {
+		log.Printf("Failed to connect to Kraken: %v", err)
+	} else {
+		krakenClient.StartReconnectHandler()
+
+		// Subscribe to Kraken order books
+		if err := krakenClient.SubscribeOrderBook(symbols); err != nil {
+			log.Printf("Failed to subscribe to Kraken order books: %v", err)
+		} else {
+			log.Println("Successfully subscribed to Kraken order books")
+		}
+	}
+	defer krakenClient.Close()
+
+	// Connect to MEXC
 	log.Println("Connecting to MEXC WebSocket...")
 	if err := mexcClient.Connect(); err != nil {
-		log.Fatalf("Failed to connect to MEXC: %v", err)
+		log.Printf("Failed to connect to MEXC: %v", err)
+	} else {
+		mexcClient.StartReconnectHandler()
+
+		// Subscribe to MEXC order books
+		if err := mexcClient.SubscribeMultipleOrderBooks(symbols, "100ms"); err != nil {
+			log.Printf("Failed to subscribe to MEXC order books: %v", err)
+		} else {
+			log.Println("Successfully subscribed to MEXC order books")
+		}
 	}
 	defer mexcClient.Close()
-
-	// Start reconnection handler
-	mexcClient.StartReconnectHandler()
-
-	// Subscribe to order books for multiple symbols
-	symbols := []string{"BTCUSDT", "ETHUSDT", "ADAUSDT", "BNBUSDT", "SOLUSDT"}
-	log.Printf("Subscribing to symbols: %v", symbols)
 
 	if err := mexcClient.SubscribeMultipleOrderBooks(symbols, "100ms"); err != nil {
 		log.Fatalf("Failed to subscribe to order books: %v", err)
