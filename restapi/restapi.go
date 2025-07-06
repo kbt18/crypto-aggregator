@@ -19,6 +19,10 @@ var upgrader = websocket.Upgrader{
 func SetupHTTPServer(aggregator *orderbook.OrderBookAggregator) {
 	r := mux.NewRouter()
 
+	r.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("OK"))
+	}).Methods(http.MethodGet)
+
 	// REST API endpoints
 	r.HandleFunc("/api/orderbook/{symbol}", func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
@@ -32,7 +36,7 @@ func SetupHTTPServer(aggregator *orderbook.OrderBookAggregator) {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(orderBook)
-	}).Methods("GET")
+	}).Methods(http.MethodGet)
 
 	// WebSocket endpoint for real-time updates
 	r.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
