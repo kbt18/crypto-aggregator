@@ -2,9 +2,11 @@ package restapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"order-book-aggregator/orderbook"
+	"sync"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
@@ -14,6 +16,53 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		return true // Allow all origins for development
 	},
+}
+
+// Connection management
+var (
+	connections      = make(map[string]chan *orderbook.OrderBook)
+	connectionsMutex sync.RWMutex
+	nextConnectionID int
+)
+
+func addWebSocketConnection(updateChan chan *orderbook.OrderBook) string {
+	connectionsMutex.Lock()
+	defer connectionsMutex.Unlock()
+
+	nextConnectionID++
+	connectionID := fmt.Sprintf("conn_%d", nextConnectionID)
+	connections[connectionID] = updateChan
+
+	log.Printf("Added WebSocket connection: %s", connectionID)
+	return connectionID
+}
+
+func removeWebSocketConnection(connectionID string) {
+	connectionsMutex.Lock()
+	defer connectionsMutex.Unlock()
+
+	if updateChan, exists := connections[connectionID]; exists {
+		close(updateChan)
+		delete(connections, connectionID)
+		log.Printf("Removed WebSocket connection: %s", connectionID)
+	}
+}
+
+// Function to broadcast order book updates to all connected clients
+func BroadcastOrderBookUpdate(orderBook *orderbook.OrderBook) {
+	connectionsMutex.RLock()
+	defer connectionsMutex.RUnlock()
+
+	for connectionID, updateChan := range connections {
+		select {
+		case updateChan <- orderBook:
+			// Update sent successfully
+		default:
+			// Channel is full or closed, remove this connection
+			log.Printf("Removing unresponsive connection: %s", connectionID)
+			go removeWebSocketConnection(connectionID)
+		}
+	}
 }
 
 func SetupHTTPServer(aggregator *orderbook.OrderBookAggregator) {
@@ -47,8 +96,68 @@ func SetupHTTPServer(aggregator *orderbook.OrderBookAggregator) {
 		}
 		defer conn.Close()
 
-		// Send updates to this WebSocket connection
-		// Implementation depends on your needs
+		log.Printf("WebSocket client connected from %s", r.RemoteAddr)
+
+		// Create a channel to handle order book updates for this connection
+		updateChan := make(chan *orderbook.OrderBook, 100)
+
+		// Subscribe this connection to order book updates
+		// (You'll need to implement this in your aggregator)
+		connectionID := addWebSocketConnection(updateChan)
+		defer removeWebSocketConnection(connectionID)
+
+		// Start goroutine to send updates to client
+		go func() {
+			for orderBookUpdate := range updateChan {
+				message := map[string]interface{}{
+					"type": "orderbook_update",
+					"data": orderBookUpdate,
+				}
+
+				if err := conn.WriteJSON(message); err != nil {
+					log.Printf("WebSocket write error: %v", err)
+					return
+				}
+			}
+		}()
+
+		// Message handling loop
+		for {
+			var message map[string]interface{}
+			err := conn.ReadJSON(&message)
+			if err != nil {
+				log.Printf("WebSocket read error: %v", err)
+				break
+			}
+
+			log.Printf("Received WebSocket message: %+v", message)
+
+			// Handle different message types
+			switch message["type"] {
+			case "ping":
+				// Respond to ping with pong
+				pong := map[string]interface{}{
+					"type":      "pong",
+					"timestamp": message["requestTime"],
+				}
+				conn.WriteJSON(pong)
+
+			case "subscribe":
+				// Handle subscription requests
+				if symbol, ok := message["symbol"].(string); ok {
+					log.Printf("Client subscribed to %s", symbol)
+					// Add logic to track subscriptions per connection
+				}
+
+			case "unsubscribe":
+				// Handle unsubscription requests
+				if symbol, ok := message["symbol"].(string); ok {
+					log.Printf("Client unsubscribed from %s", symbol)
+				}
+			}
+		}
+
+		log.Printf("WebSocket client disconnected")
 	})
 
 	// Enable CORS

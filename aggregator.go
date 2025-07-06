@@ -32,7 +32,7 @@ func main() {
 		// - Triggering trading strategies
 	})
 
-	// Create MEXC WebSocket client with callback
+	// When you receive order book updates from MEXC, broadcast to WebSocket clients
 	mexcCallback := func(data *client.OrderBookData) {
 		// Convert MEXC data to the aggregator format
 		exchangeBook := &orderbook.ExchangeOrderBook{
@@ -46,6 +46,12 @@ func main() {
 
 		// Update the aggregator
 		aggregator.UpdateOrderBook("MEXC", exchangeBook)
+
+		// Get the updated aggregated order book
+		if updatedOrderBook := aggregator.GetOrderBook(data.Symbol); updatedOrderBook != nil {
+			// Broadcast to all WebSocket clients
+			restapi.BroadcastOrderBookUpdate(updatedOrderBook)
+		}
 	}
 
 	mexcClient := client.NewMEXCWebSocketClient(mexcCallback)
