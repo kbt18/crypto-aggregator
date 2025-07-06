@@ -12,7 +12,7 @@ import (
 
 	"order-book-aggregator/client"
 	"order-book-aggregator/orderbook"
-	"order-book-aggregator/restapi"
+	"order-book-aggregator/webapi"
 )
 
 func main() {
@@ -54,7 +54,7 @@ func main() {
 		// Get the updated aggregated order book
 		if updatedOrderBook := aggregator.GetOrderBook(data.Symbol); updatedOrderBook != nil {
 			// Broadcast to all WebSocket clients
-			restapi.BroadcastOrderBookUpdate(updatedOrderBook)
+			webapi.BroadcastOrderBookUpdate(updatedOrderBook)
 		}
 	}
 
@@ -73,7 +73,7 @@ func main() {
 
 		// Broadcast to WebSocket clients
 		if updatedOrderBook := aggregator.GetOrderBook(data.Symbol); updatedOrderBook != nil {
-			restapi.BroadcastOrderBookUpdate(updatedOrderBook)
+			webapi.BroadcastOrderBookUpdate(updatedOrderBook)
 		}
 	}
 
@@ -134,7 +134,7 @@ func main() {
 	fmt.Println(strings.Repeat("=", 60))
 
 	// Add this to your main() function
-	go restapi.SetupHTTPServer(aggregator)
+	go webapi.SetupHTTPServer(aggregator)
 
 	for {
 		select {
