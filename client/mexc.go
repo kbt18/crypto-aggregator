@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -473,10 +474,7 @@ func parseFloat(s string) (float64, error) {
 	if s == "" {
 		return 0, fmt.Errorf("empty string")
 	}
-	// Simple string to float conversion for price strings
-	var result float64
-	_, err := fmt.Sscanf(s, "%f", &result)
-	return result, err
+	return strconv.ParseFloat(s, 64)
 }
 
 // Close closes the WebSocket connection
