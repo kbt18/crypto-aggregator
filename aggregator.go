@@ -35,52 +35,12 @@ func main() {
 	symbols := []string{"BTCUSDT", "ETHUSDT", "ADAUSDT", "SOLUSDT", "DOTUSDT"}
 	log.Printf("Will subscribe to symbols: %v", symbols)
 
-	// When you receive order book updates from MEXC, broadcast to WebSocket clients
-	mexcCallback := func(data *client.OrderBookData) {
-		// Convert MEXC data to the aggregator format
-		exchangeBook := &orderbook.ExchangeOrderBook{
-			Symbol:     data.Symbol,
-			Exchange:   data.Exchange,
-			Bids:       data.Bids,
-			Asks:       data.Asks,
-			LastUpdate: data.LastUpdate,
-			Version:    data.Version,
-		}
+	mexcCallback := clientCallbackFactory("MEXC", aggregator)
+	krakenCallback := clientCallbackFactory("Kraken", aggregator)
 
-		// Update the aggregator
-		aggregator.UpdateOrderBook("MEXC", exchangeBook)
-
-		// Get the updated aggregated order book
-		if updatedOrderBook := aggregator.GetOrderBook(data.Symbol); updatedOrderBook != nil {
-			// Broadcast to all WebSocket clients
-			webapi.BroadcastOrderBookUpdate(updatedOrderBook)
-		}
-	}
-
-	// Set up Kraken WebSocket client
-	krakenCallback := func(data *client.OrderBookData) {
-		exchangeBook := &orderbook.ExchangeOrderBook{
-			Symbol:     data.Symbol,
-			Exchange:   data.Exchange,
-			Bids:       data.Bids,
-			Asks:       data.Asks,
-			LastUpdate: data.LastUpdate,
-			Version:    data.Version,
-		}
-
-		aggregator.UpdateOrderBook("Kraken", exchangeBook)
-
-		// Broadcast to WebSocket clients
-		if updatedOrderBook := aggregator.GetOrderBook(data.Symbol); updatedOrderBook != nil {
-			webapi.BroadcastOrderBookUpdate(updatedOrderBook)
-		}
-	}
-
-	// Create clients
 	mexcClient := client.NewMEXCWebSocketClient(mexcCallback)
 	krakenClient := client.NewKrakenWebSocketClient(krakenCallback)
 
-	// Connect to Kraken with a small delay
 	time.Sleep(2 * time.Second)
 	log.Println("Connecting to Kraken WebSocket...")
 	if err := krakenClient.Connect(); err != nil {
@@ -204,13 +164,32 @@ func displayStatistics(aggregator *orderbook.OrderBookAggregator, symbols []stri
 	fmt.Printf("Uptime: %s\n", time.Since(startTime).Round(time.Second))
 }
 
-// Helper function to get keys from a map
 func getKeys(m map[string]bool) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)
 	}
 	return keys
+}
+
+func clientCallbackFactory(clientName string, aggregator *orderbook.OrderBookAggregator) func(*client.OrderBookData) {
+	return func(data *client.OrderBookData) {
+		exchangeBook := &orderbook.ExchangeOrderBook{
+			Symbol:     data.Symbol,
+			Exchange:   data.Exchange,
+			Bids:       data.Bids,
+			Asks:       data.Asks,
+			LastUpdate: data.LastUpdate,
+			Version:    data.Version,
+		}
+
+		aggregator.UpdateOrderBook(clientName, exchangeBook)
+
+		if updatedOrderBook := aggregator.GetOrderBook(data.Symbol); updatedOrderBook != nil {
+			// Broadcast to all WebSocket clients
+			webapi.BroadcastOrderBookUpdate(updatedOrderBook)
+		}
+	}
 }
 
 // Global variable to track start time
