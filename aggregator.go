@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -205,14 +204,6 @@ func displayStatistics(aggregator *orderbook.OrderBookAggregator, symbols []stri
 	fmt.Printf("Uptime: %s\n", time.Since(startTime).Round(time.Second))
 }
 
-// Helper function to repeat strings (since Go doesn't have a built-in repeat for strings)
-func repeat(s string, count int) string {
-	if count <= 0 {
-		return ""
-	}
-	return strings.Repeat(s, count)
-}
-
 // Helper function to get keys from a map
 func getKeys(m map[string]bool) []string {
 	keys := make([]string, 0, len(m))
@@ -224,81 +215,3 @@ func getKeys(m map[string]bool) []string {
 
 // Global variable to track start time
 var startTime = time.Now()
-
-// Advanced example showing how to monitor specific conditions
-func setupAdvancedMonitoring(aggregator *orderbook.OrderBookAggregator) {
-	// Example: Alert when spread is unusually wide
-	aggregator.AddCallback(func(symbol string, orderBook *orderbook.OrderBook) {
-		bestBid, bestAsk, spread, err := orderBook.GetBestPrice()
-		if err != nil {
-			return
-		}
-
-		midPrice := (bestBid + bestAsk) / 2
-		spreadPercent := (spread / midPrice) * 100
-
-		// Alert if spread is greater than 0.1%
-		if spreadPercent > 0.1 {
-			log.Printf("ALERT: Wide spread detected for %s: %.3f%% ($%.2f)",
-				symbol, spreadPercent, spread)
-		}
-	})
-
-	// Example: Monitor for arbitrage opportunities
-	aggregator.AddCallback(func(symbol string, orderBook *orderbook.OrderBook) {
-		// This is where you could implement arbitrage detection
-		// by comparing prices across different exchanges
-		// For now, we'll just log when we have multiple sources
-		if len(orderBook.Sources) > 1 {
-			log.Printf("Multiple sources available for %s: %v", symbol, orderBook.Sources)
-		}
-	})
-}
-
-// Example of how you might extend this to add more exchanges
-func addMoreExchanges(aggregator *orderbook.OrderBookAggregator) {
-	// Example structure for adding Binance or other exchanges:
-
-	/*
-		binanceCallback := func(data *clients.BinanceOrderBookData) {
-			exchangeBook := &orderbook.ExchangeOrderBook{
-				Symbol:     data.Symbol,
-				Exchange:   "Binance",
-				Bids:       data.Bids,
-				Asks:       data.Asks,
-				LastUpdate: data.LastUpdate,
-			}
-			aggregator.UpdateOrderBook("Binance", exchangeBook)
-		}
-
-		binanceClient := clients.NewBinanceWebSocketClient(binanceCallback)
-		// ... connect and subscribe
-	*/
-
-	// For now, this is just a placeholder showing the pattern
-	log.Println("Ready to add more exchanges...")
-}
-
-// Performance monitoring function
-func startPerformanceMonitoring(aggregator *orderbook.OrderBookAggregator) {
-	go func() {
-		ticker := time.NewTicker(1 * time.Minute)
-		defer ticker.Stop()
-
-		var updateCount int64
-
-		for range ticker.C {
-			// You could add metrics here such as:
-			// - Updates per second
-			// - Memory usage
-			// - Connection health
-			// - Latency measurements
-
-			currentCount := atomic.LoadInt64(&updateCount)
-			updatesPerMinute := currentCount - updateCount
-			updateCount = currentCount
-
-			log.Printf("Performance: %d updates/min", updatesPerMinute)
-		}
-	}()
-}
