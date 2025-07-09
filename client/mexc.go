@@ -57,6 +57,12 @@ func (c *MEXCWebSocketClient) SetUpdateSpeed(speed string) {
 	c.updateSpeed = speed
 }
 
+// SubscribeMultipleOrderBooks subscribes to multiple order books (MEXC-specific method)
+func (c *MEXCWebSocketClient) SubscribeMultipleOrderBooks(symbols []string, updateSpeed string) error {
+	c.updateSpeed = updateSpeed
+	return c.Subscribe(symbols)
+}
+
 // CreateSubscriptionMessage creates MEXC subscription message
 func (impl *MEXCImplementation) CreateSubscriptionMessage(symbols []string) (interface{}, error) {
 	var channels []string
@@ -268,6 +274,70 @@ func (impl *MEXCImplementation) ProcessOrderBookUpdate(symbol string, data inter
 	// This method can be used for additional processing if needed
 	// For now, the processing is handled in the specific message handlers
 	return nil, nil
+}
+
+// ============================================================================
+// Additional Interface Methods for MEXC
+// ============================================================================
+
+// Unsubscribe implements the WebSocketClient interface
+func (c *MEXCWebSocketClient) Unsubscribe(symbols []string) error {
+	return c.BaseWebSocketClient.Unsubscribe(symbols)
+}
+
+// GetSubscriptions implements the WebSocketClient interface
+func (c *MEXCWebSocketClient) GetSubscriptions() []string {
+	return c.BaseWebSocketClient.GetSubscriptions()
+}
+
+// GetOrderBookData implements the WebSocketClient interface
+func (c *MEXCWebSocketClient) GetOrderBookData(symbol string) (*OrderBookData, error) {
+	return c.BaseWebSocketClient.GetOrderBookData(symbol)
+}
+
+// GetBestPrice implements the WebSocketClient interface
+func (c *MEXCWebSocketClient) GetBestPrice(symbol string) (bestBid, bestAsk float64, err error) {
+	return c.BaseWebSocketClient.GetBestPrice(symbol)
+}
+
+// GetExchangeName implements the WebSocketClient interface
+func (c *MEXCWebSocketClient) GetExchangeName() string {
+	return c.BaseWebSocketClient.GetExchangeName()
+}
+
+// IsConnected implements the WebSocketClient interface
+func (c *MEXCWebSocketClient) IsConnected() bool {
+	return c.BaseWebSocketClient.IsConnected()
+}
+
+// SetUpdateCallback implements the WebSocketClient interface
+func (c *MEXCWebSocketClient) SetUpdateCallback(callback OrderBookUpdateCallback) {
+	c.BaseWebSocketClient.SetUpdateCallback(callback)
+}
+
+// Connect implements the WebSocketClient interface
+func (c *MEXCWebSocketClient) Connect() error {
+	return c.BaseWebSocketClient.Connect()
+}
+
+// Close implements the WebSocketClient interface
+func (c *MEXCWebSocketClient) Close() error {
+	return c.BaseWebSocketClient.Close()
+}
+
+// Reconnect implements the WebSocketClient interface
+func (c *MEXCWebSocketClient) Reconnect() error {
+	return c.BaseWebSocketClient.Reconnect()
+}
+
+// StartReconnectHandler implements the WebSocketClient interface
+func (c *MEXCWebSocketClient) StartReconnectHandler() {
+	c.BaseWebSocketClient.StartReconnectHandler()
+}
+
+// Subscribe implements the WebSocketClient interface
+func (c *MEXCWebSocketClient) Subscribe(symbols []string) error {
+	return c.BaseWebSocketClient.Subscribe(symbols)
 }
 
 // ============================================================================
