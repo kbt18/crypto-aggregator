@@ -164,7 +164,6 @@ func displayStatistics(aggregator *orderbook.OrderBookAggregator, symbols []stri
 	fmt.Printf("Uptime: %s\n", time.Since(startTime).Round(time.Second))
 }
 
-// Helper function to get keys from a map
 func getKeys(m map[string]bool) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
@@ -175,7 +174,6 @@ func getKeys(m map[string]bool) []string {
 
 func clientCallbackFactory(clientName string, aggregator *orderbook.OrderBookAggregator) func(*client.OrderBookData) {
 	return func(data *client.OrderBookData) {
-		// Convert MEXC data to the aggregator format
 		exchangeBook := &orderbook.ExchangeOrderBook{
 			Symbol:     data.Symbol,
 			Exchange:   data.Exchange,
@@ -185,10 +183,8 @@ func clientCallbackFactory(clientName string, aggregator *orderbook.OrderBookAgg
 			Version:    data.Version,
 		}
 
-		// Update the aggregator
 		aggregator.UpdateOrderBook(clientName, exchangeBook)
 
-		// Get the updated aggregated order book
 		if updatedOrderBook := aggregator.GetOrderBook(data.Symbol); updatedOrderBook != nil {
 			// Broadcast to all WebSocket clients
 			webapi.BroadcastOrderBookUpdate(updatedOrderBook)
