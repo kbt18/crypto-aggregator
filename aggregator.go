@@ -15,112 +15,127 @@ import (
 	"order-book-aggregator/webapi"
 )
 
-// Global variable to track start time
-var startTime = time.Now()
-
-// ExchangeClient interface for common client operations
-type ExchangeClient interface {
-	Connect() error
-	Close() error
-	StartReconnectHandler()
-	GetExchangeName() string
-}
-
-// ClientConfig holds configuration for exchange clients
-type ClientConfig struct {
-	Name          string
-	Client        ExchangeClient
-	ConnectDelay  time.Duration
-	SubscribeFunc func() error
-	FailOnError   bool
-}
-
 func main() {
 	log.Println("Starting Order Book Aggregator...")
 
 	// Create order book aggregator
 	aggregator := orderbook.NewOrderBookAggregator()
 
-	// Add main callback to handle order book updates
+	// Add callback to handle order book updates
 	aggregator.AddCallback(func(symbol string, orderBook *orderbook.OrderBook) {
+		// This callback is called whenever an order book is updated
 		log.Printf("Order book updated for %s from exchanges: %v", symbol, orderBook.Sources)
-		// Broadcast to all WebSocket clients
-		webapi.BroadcastOrderBookUpdate(orderBook)
+
+		// You can add custom logic here, such as:
+		// - Sending alerts when spread is too wide
+		// - Logging order book snapshots
+		// - Triggering trading strategies
 	})
 
-	// Set up advanced monitoring
-	setupAdvancedMonitoring(aggregator)
-
-	// Symbols to track
+	// Symbols to track (note: BNB might not be available on Kraken)
 	symbols := []string{"BTCUSDT", "ETHUSDT", "ADAUSDT", "SOLUSDT", "DOTUSDT"}
 	log.Printf("Will subscribe to symbols: %v", symbols)
 
-	// Create exchange callback factory
-	createExchangeCallback := func(exchangeName string) func(*client.OrderBookData) {
-		return func(data *client.OrderBookData) {
-			exchangeBook := &orderbook.ExchangeOrderBook{
-				Symbol:     data.Symbol,
-				Exchange:   data.Exchange,
-				Bids:       data.Bids,
-				Asks:       data.Asks,
-				LastUpdate: data.LastUpdate,
-				Version:    data.Version,
-			}
-			aggregator.UpdateOrderBook(exchangeName, exchangeBook)
+	// When you receive order book updates from MEXC, broadcast to WebSocket clients
+	mexcCallback := func(data *client.OrderBookData) {
+		// Convert MEXC data to the aggregator format
+		exchangeBook := &orderbook.ExchangeOrderBook{
+			Symbol:     data.Symbol,
+			Exchange:   data.Exchange,
+			Bids:       data.Bids,
+			Asks:       data.Asks,
+			LastUpdate: data.LastUpdate,
+			Version:    data.Version,
+		}
+
+		// Update the aggregator
+		aggregator.UpdateOrderBook("MEXC", exchangeBook)
+
+		// Get the updated aggregated order book
+		if updatedOrderBook := aggregator.GetOrderBook(data.Symbol); updatedOrderBook != nil {
+			// Broadcast to all WebSocket clients
+			webapi.BroadcastOrderBookUpdate(updatedOrderBook)
+		}
+	}
+
+	// Set up Kraken WebSocket client
+	krakenCallback := func(data *client.OrderBookData) {
+		exchangeBook := &orderbook.ExchangeOrderBook{
+			Symbol:     data.Symbol,
+			Exchange:   data.Exchange,
+			Bids:       data.Bids,
+			Asks:       data.Asks,
+			LastUpdate: data.LastUpdate,
+			Version:    data.Version,
+		}
+
+		aggregator.UpdateOrderBook("Kraken", exchangeBook)
+
+		// Broadcast to WebSocket clients
+		if updatedOrderBook := aggregator.GetOrderBook(data.Symbol); updatedOrderBook != nil {
+			webapi.BroadcastOrderBookUpdate(updatedOrderBook)
 		}
 	}
 
 	// Create clients
-	mexcClient := client.NewMEXCWebSocketClient(createExchangeCallback("MEXC"))
-	krakenClient := client.NewKrakenWebSocketClient(createExchangeCallback("Kraken"))
+	mexcClient := client.NewMEXCWebSocketClient(mexcCallback)
+	krakenClient := client.NewKrakenWebSocketClient(krakenCallback)
 
-	// Configure exchange clients
-	exchangeConfigs := []ClientConfig{
-		{
-			Name:         "Kraken",
-			Client:       krakenClient,
-			ConnectDelay: 2 * time.Second,
-			SubscribeFunc: func() error {
-				return krakenClient.SubscribeOrderBook(symbols)
-			},
-			FailOnError: false,
-		},
-		{
-			Name:         "MEXC",
-			Client:       mexcClient,
-			ConnectDelay: 0,
-			SubscribeFunc: func() error {
-				return mexcClient.SubscribeMultipleOrderBooks(symbols, "100ms")
-			},
-			FailOnError: false,
-		},
+	// Connect to Kraken with a small delay
+	time.Sleep(2 * time.Second)
+	log.Println("Connecting to Kraken WebSocket...")
+	if err := krakenClient.Connect(); err != nil {
+		log.Printf("Failed to connect to Kraken: %v", err)
+	} else {
+		krakenClient.StartReconnectHandler()
+
+		// Subscribe to Kraken order books
+		if err := krakenClient.SubscribeOrderBook(symbols); err != nil {
+			log.Printf("Failed to subscribe to Kraken order books: %v", err)
+		} else {
+			log.Println("Successfully subscribed to Kraken order books")
+		}
 	}
+	defer krakenClient.Close()
 
-	// Connect and subscribe to all exchanges
-	connectedClients := connectToExchanges(exchangeConfigs)
-	defer closeAllClients(connectedClients)
+	// Connect to MEXC
+	log.Println("Connecting to MEXC WebSocket...")
+	if err := mexcClient.Connect(); err != nil {
+		log.Printf("Failed to connect to MEXC: %v", err)
+	} else {
+		mexcClient.StartReconnectHandler()
+
+		// Subscribe to MEXC order books
+		if err := mexcClient.SubscribeMultipleOrderBooks(symbols, "100ms"); err != nil {
+			log.Printf("Failed to subscribe to MEXC order books: %v", err)
+		} else {
+			log.Println("Successfully subscribed to MEXC order books")
+		}
+	}
+	defer mexcClient.Close()
+
+	if err := mexcClient.SubscribeMultipleOrderBooks(symbols, "100ms"); err != nil {
+		log.Fatalf("Failed to subscribe to order books: %v", err)
+	}
 
 	// Set up graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Set up tickers
+	// Create a ticker for periodic order book display
 	displayTicker := time.NewTicker(10 * time.Second)
 	defer displayTicker.Stop()
 
+	// Create a ticker for statistics
 	statsTicker := time.NewTicker(30 * time.Second)
 	defer statsTicker.Stop()
 
 	log.Println("Order Book Aggregator is running. Press Ctrl+C to exit.")
 	fmt.Println(strings.Repeat("=", 60))
 
-	// Start HTTP server
+	// Add this to your main() function
 	go webapi.SetupHTTPServer(aggregator)
 
-	// Start performance monitoring
-	startPerformanceMonitoring()
-
-	// Main event loop
 	for {
 		select {
 		case <-displayTicker.C:
@@ -132,55 +147,6 @@ func main() {
 		case sig := <-sigChan:
 			log.Printf("Received signal %v, shutting down gracefully...", sig)
 			return
-		}
-	}
-}
-
-// connectToExchanges handles connection and subscription for all exchange clients
-func connectToExchanges(configs []ClientConfig) []ExchangeClient {
-	var connectedClients []ExchangeClient
-
-	for _, config := range configs {
-		// Add connection delay if specified
-		if config.ConnectDelay > 0 {
-			time.Sleep(config.ConnectDelay)
-		}
-
-		log.Printf("Connecting to %s WebSocket...", config.Name)
-
-		// Connect to exchange
-		if err := config.Client.Connect(); err != nil {
-			log.Printf("Failed to connect to %s: %v", config.Name, err)
-			if config.FailOnError {
-				log.Fatalf("Critical connection failure for %s", config.Name)
-			}
-			continue
-		}
-
-		// Start reconnect handler
-		config.Client.StartReconnectHandler()
-
-		// Subscribe to order books
-		if err := config.SubscribeFunc(); err != nil {
-			log.Printf("Failed to subscribe to %s order books: %v", config.Name, err)
-			if config.FailOnError {
-				log.Fatalf("Critical subscription failure for %s", config.Name)
-			}
-			continue
-		}
-
-		log.Printf("Successfully connected and subscribed to %s", config.Name)
-		connectedClients = append(connectedClients, config.Client)
-	}
-
-	return connectedClients
-}
-
-// closeAllClients closes all connected exchange clients
-func closeAllClients(clients []ExchangeClient) {
-	for _, client := range clients {
-		if err := client.Close(); err != nil {
-			log.Printf("Error closing client: %v", err)
 		}
 	}
 }
@@ -239,7 +205,15 @@ func displayStatistics(aggregator *orderbook.OrderBookAggregator, symbols []stri
 	fmt.Printf("Uptime: %s\n", time.Since(startTime).Round(time.Second))
 }
 
-// getKeys returns keys from a map as a slice
+// Helper function to repeat strings (since Go doesn't have a built-in repeat for strings)
+func repeat(s string, count int) string {
+	if count <= 0 {
+		return ""
+	}
+	return strings.Repeat(s, count)
+}
+
+// Helper function to get keys from a map
 func getKeys(m map[string]bool) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
@@ -248,9 +222,12 @@ func getKeys(m map[string]bool) []string {
 	return keys
 }
 
-// setupAdvancedMonitoring sets up monitoring for specific conditions
+// Global variable to track start time
+var startTime = time.Now()
+
+// Advanced example showing how to monitor specific conditions
 func setupAdvancedMonitoring(aggregator *orderbook.OrderBookAggregator) {
-	// Alert when spread is unusually wide
+	// Example: Alert when spread is unusually wide
 	aggregator.AddCallback(func(symbol string, orderBook *orderbook.OrderBook) {
 		bestBid, bestAsk, spread, err := orderBook.GetBestPrice()
 		if err != nil {
@@ -267,51 +244,61 @@ func setupAdvancedMonitoring(aggregator *orderbook.OrderBookAggregator) {
 		}
 	})
 
-	// Monitor for arbitrage opportunities
+	// Example: Monitor for arbitrage opportunities
 	aggregator.AddCallback(func(symbol string, orderBook *orderbook.OrderBook) {
+		// This is where you could implement arbitrage detection
+		// by comparing prices across different exchanges
+		// For now, we'll just log when we have multiple sources
 		if len(orderBook.Sources) > 1 {
 			log.Printf("Multiple sources available for %s: %v", symbol, orderBook.Sources)
 		}
 	})
 }
 
-// startPerformanceMonitoring monitors system performance
-func startPerformanceMonitoring() {
+// Example of how you might extend this to add more exchanges
+func addMoreExchanges(aggregator *orderbook.OrderBookAggregator) {
+	// Example structure for adding Binance or other exchanges:
+
+	/*
+		binanceCallback := func(data *clients.BinanceOrderBookData) {
+			exchangeBook := &orderbook.ExchangeOrderBook{
+				Symbol:     data.Symbol,
+				Exchange:   "Binance",
+				Bids:       data.Bids,
+				Asks:       data.Asks,
+				LastUpdate: data.LastUpdate,
+			}
+			aggregator.UpdateOrderBook("Binance", exchangeBook)
+		}
+
+		binanceClient := clients.NewBinanceWebSocketClient(binanceCallback)
+		// ... connect and subscribe
+	*/
+
+	// For now, this is just a placeholder showing the pattern
+	log.Println("Ready to add more exchanges...")
+}
+
+// Performance monitoring function
+func startPerformanceMonitoring(aggregator *orderbook.OrderBookAggregator) {
 	go func() {
 		ticker := time.NewTicker(1 * time.Minute)
 		defer ticker.Stop()
 
-		var lastUpdateCount int64
+		var updateCount int64
 
 		for range ticker.C {
-			currentCount := atomic.LoadInt64(&lastUpdateCount)
-			// Reset counter for next interval
-			atomic.StoreInt64(&lastUpdateCount, 0)
+			// You could add metrics here such as:
+			// - Updates per second
+			// - Memory usage
+			// - Connection health
+			// - Latency measurements
 
-			log.Printf("Performance: %d updates/min", currentCount)
+			currentCount := atomic.LoadInt64(&updateCount)
+			updatesPerMinute := currentCount - updateCount
+			updateCount = currentCount
+
+			log.Printf("Performance: %d updates/min", updatesPerMinute)
 		}
 	}()
-}
-
-// addMoreExchanges shows how to extend for additional exchanges
-func addMoreExchanges(aggregator *orderbook.OrderBookAggregator) {
-	// Example structure for adding Binance or other exchanges:
-	/*
-		binanceCallback := createExchangeCallback("Binance")
-		binanceClient := client.NewBinanceWebSocketClient(binanceCallback)
-
-		newConfig := ClientConfig{
-			Name:         "Binance",
-			Client:       binanceClient,
-			ConnectDelay: 1 * time.Second,
-			SubscribeFunc: func() error {
-				return binanceClient.SubscribeOrderBook(symbols)
-			},
-			FailOnError: false,
-		}
-
-		// Add to exchangeConfigs slice and it will be handled automatically
-	*/
-
-	log.Println("Ready to add more exchanges...")
 }
