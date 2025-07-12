@@ -4,9 +4,6 @@ name: Go Test
 on:
   push:
 
-  pull_request:
-    branches: [ main ]
-
 jobs:
   test:
     name: Test
