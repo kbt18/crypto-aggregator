@@ -8,7 +8,6 @@
 
 ### Prerequisites
 - Go 1.19+
-- Protocol Buffers compiler (for MEXC protobuf messages)
 
 ## Installation & Running
 
