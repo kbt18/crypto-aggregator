@@ -35,10 +35,10 @@ func main() {
 	symbols := []string{"BTCUSDT", "ETHUSDT", "ADAUSDT", "SOLUSDT", "DOTUSDT"}
 	log.Printf("Will subscribe to symbols: %v", symbols)
 
-	mexcCallback := clientCallbackFactory("MEXC", aggregator)
+	// mexcCallback := clientCallbackFactory("MEXC", aggregator)
 	krakenCallback := clientCallbackFactory("Kraken", aggregator)
 
-	mexcClient := client.NewMEXCWebSocketClient(mexcCallback)
+	// mexcClient := client.NewMEXCWebSocketClient(mexcCallback)
 	krakenClient := client.NewKrakenWebSocketClient(krakenCallback)
 
 	time.Sleep(2 * time.Second)
@@ -57,25 +57,25 @@ func main() {
 	}
 	defer krakenClient.Close()
 
-	// Connect to MEXC
-	log.Println("Connecting to MEXC WebSocket...")
-	if err := mexcClient.Connect(); err != nil {
-		log.Printf("Failed to connect to MEXC: %v", err)
-	} else {
-		mexcClient.StartReconnectHandler()
+	// // Connect to MEXC
+	// log.Println("Connecting to MEXC WebSocket...")
+	// if err := mexcClient.Connect(); err != nil {
+	// 	log.Printf("Failed to connect to MEXC: %v", err)
+	// } else {
+	// 	mexcClient.StartReconnectHandler()
 
-		// Subscribe to MEXC order books
-		if err := mexcClient.SubscribeMultipleOrderBooks(symbols, "100ms"); err != nil {
-			log.Printf("Failed to subscribe to MEXC order books: %v", err)
-		} else {
-			log.Println("Successfully subscribed to MEXC order books")
-		}
-	}
-	defer mexcClient.Close()
+	// 	// Subscribe to MEXC order books
+	// 	if err := mexcClient.SubscribeMultipleOrderBooks(symbols, "100ms"); err != nil {
+	// 		log.Printf("Failed to subscribe to MEXC order books: %v", err)
+	// 	} else {
+	// 		log.Println("Successfully subscribed to MEXC order books")
+	// 	}
+	// }
+	// defer mexcClient.Close()
 
-	if err := mexcClient.SubscribeMultipleOrderBooks(symbols, "100ms"); err != nil {
-		log.Fatalf("Failed to subscribe to order books: %v", err)
-	}
+	// if err := mexcClient.SubscribeMultipleOrderBooks(symbols, "100ms"); err != nil {
+	// 	log.Fatalf("Failed to subscribe to order books: %v", err)
+	// }
 
 	// Set up graceful shutdown
 	sigChan := make(chan os.Signal, 1)
