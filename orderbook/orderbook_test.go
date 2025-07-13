@@ -1,6 +1,7 @@
 package orderbook
 
 import (
+	"sync"
 	"testing"
 	"time"
 )
@@ -117,11 +118,14 @@ func TestUpdateOrderBook(t *testing.T) {
 	callbackExecuted := false
 	var callbackSymbol string
 	var callbackOrderBook *OrderBook
+	callbackMutex := sync.RWMutex{}
 
 	oba.AddCallback(func(symbol string, orderBook *OrderBook) {
+		callbackMutex.Lock()
 		callbackExecuted = true
 		callbackSymbol = symbol
 		callbackOrderBook = orderBook
+		callbackMutex.Unlock()
 	})
 
 	oba.UpdateOrderBook("TestExchange", exchangeBook)
@@ -129,17 +133,23 @@ func TestUpdateOrderBook(t *testing.T) {
 	// Give callback time to execute (it runs in goroutine)
 	time.Sleep(10 * time.Millisecond)
 
+	callbackMutex.RLock()
 	if !callbackExecuted {
+		callbackMutex.RUnlock()
 		t.Error("Callback was not executed")
 	}
 
 	if callbackSymbol != "BTCUSDT" {
+		callbackMutex.RUnlock()
 		t.Errorf("Expected callback symbol BTCUSDT, got %s", callbackSymbol)
 	}
 
 	if callbackOrderBook == nil {
+		callbackMutex.RUnlock()
 		t.Error("Callback order book is nil")
 	}
+
+	callbackMutex.RUnlock()
 
 	// Check if exchange order book was stored
 	if oba.exchanges["TestExchange"] == nil {
