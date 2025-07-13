@@ -12,12 +12,6 @@
 
 ## Installation & Running
 
-### Clone the repository
-```bash
-git clone <repository-url>
-cd order-book-aggregator
-```
-
 ### Install dependencies
 ```bash
 go mod tidy
