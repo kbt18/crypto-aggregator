@@ -22,7 +22,7 @@ go mod tidy
 go run aggregator.go
 ```
 
-# WebSocket API
+## WebSocket API
 Connect to ws://localhost:8080/ws for real-time order book updates.
 Message Format:
 
